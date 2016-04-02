@@ -5,7 +5,7 @@ import time
 import datetime
 import logging
 import random
-import ast
+import bs4
 
 from time import mktime
 from datetime import datetime, timedelta
@@ -17,7 +17,7 @@ def dbInit(conn):
     c.execute('''
                 create table card
                     (
-                        code text,
+                        code text primary key,
                         cyclenumber numeric,
                         number numeric,
                         
@@ -44,7 +44,7 @@ def dbInit(conn):
     c.execute('''
                 create table deck
                     (
-                        id int,
+                        id int primary key,
                         name text,
                         create_date text,
                         description text,
@@ -59,7 +59,8 @@ def dbInit(conn):
                     (
                         deckid int,
                         cardid text,
-                        quantity int
+                        quantity int,
+                        primary key (deckid, cardid)
                     );
                 ''')
     
@@ -131,7 +132,7 @@ def getCards(conn, fromDate):
     conn.commit()
     c.close()
 
-def getDecks():
+def getDecks(conn, dbMaxDate):
     
     ## Get the current date (rounded down)
     currentDate = datetime.today()
@@ -139,8 +140,8 @@ def getDecks():
     print(currentDate)
 
     ## Get the latest date, according to the database
-    dbMaxDate = datetime.strptime('2016-03-27', "%Y-%m-%d")
-    print(dbMaxDate)
+    #dbMaxDate = datetime.strptime('2016-03-27', "%Y-%m-%d")
+    #print(dbMaxDate)
 
     ## Calculate how many days of querying, and generate random number sequence
     queryDays = (dbMaxDate - currentDate).days  * -1
@@ -149,7 +150,6 @@ def getDecks():
     random.seed(123)
     days = random.sample(range(0, queryDays), queryDays)
  
-    conn = sqlite3.connect('netrunner.db')
     c = conn.cursor()
     
     ## Iterate over the sequence of days, and query API
@@ -162,16 +162,44 @@ def getDecks():
         
         
         for deck in decks:
+            
+            ## Try and get the social tags from the website
+            logging.info('Scraping social data for deck '+deck['name']+'('+str(deck['id'])+')')
+
+            url = 'http://netrunnerdb.com/en/decklist/'+str(deck['id'])
+            response = requests.get(url=url)
+
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                section = soup.find(id="social-icon-like")
+                votes=section.find("span", class_="num").next
+                
+                section = soup.find(id="social-icon-favorite")
+                favourites=section.find("span", class_="num").next
+                
+                section = soup.find(id="social-icon-comment")
+                comments=section.find("span", class_="num").next
+            else:
+                logging.warning("Couldn't find a page for deck "+str(deck['id']))
+                votes=None
+                favourites=None
+                comments=None
+    
             row = (deck['id'],
                     deck['name'],
                     deck['creation'],
                     deck['description'],
-                    deck['username'])
+                    deck['username'],
+                    votes,
+                    favourites,
+                    comments)
             
             c.execute('''
-                        insert into deck (id, name, create_date, 
-                                            description, username)
-                        values (?,?,?,?,?)''', row)
+                        insert or ignore into deck (id, name, create_date, description, 
+                                            username, votes, favourites,
+                                            comments)
+                        values (?,?,?,?,?,?,?,?)''', row)
             
             for cardid, qty in deck['cards'].items():
                 row = (deck['id'],
@@ -179,7 +207,7 @@ def getDecks():
                         qty
                         )
                 c.execute('''
-                            insert into decklist(deckid, cardid, quantity)
+                            insert or ignore into decklist(deckid, cardid, quantity)
                             values (?,?,?);
                         ''', row)
 
@@ -214,14 +242,19 @@ def main():
    
     conn = sqlite3.connect(dbFile)
 
-    scanDate = '2016-04-01'
+    c = conn.cursor()
     
-    scanDateTime = time.strptime(scanDate, "%Y-%m-%d")
-    
-    #getCards(conn=conn, fromDate=scanDateTime)
+    c.execute("select max(create_date) from deck")
+    d = c.fetchone()[0]
 
-    getDecks()
-    #getDecks(conn=conn, fromDate=scanDate)
+    if firstRun == False and d is not None:
+        dbMaxDate=datetime.strptime(d, "%Y-%m-%d %H:%M:%S").replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        dbMaxDate = datetime.strptime('2016-03-01', "%Y-%m-%d")
+        
+    getCards(conn=conn, fromDate=scanDateTime)
+
+    getDecks(conn=conn, dbMaxDate=dbMaxDate)
     
     conn.close()
     

@@ -165,8 +165,8 @@ def getDecks(conn, wayBack):
   
     ## Create a set with our current dates, plus whatever is already in db
     logging.info('''
-                    Running a query on dates from '''+str(today)+''' 
-                    to '''+str(wayBack)+'''.
+                    Running a query on dates from '''+str(wayBack)+''' 
+                    to '''+str(today)+'''.
                 ''')
                 
     d = [wayBack, today]

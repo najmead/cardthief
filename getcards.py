@@ -140,7 +140,7 @@ def getCards(conn, fromDate):
 def getDecks(conn, wayBack):
     
     ## Create connection to db and query it
-    # conn = sqlite3.connect('netrunner.db')
+    conn = sqlite3.connect('netrunner.db')
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
 
@@ -152,7 +152,7 @@ def getDecks(conn, wayBack):
     
     dates = c.fetchall()
     existingDates = set(datetime.strptime(dates[x][0],"%Y-%m-%d") for x in range(0, len(dates)))
-
+    
     ## Get the current date (rounded down).  
     today = datetime.today()-timedelta(days=1)
     today = today.replace(hour=0, minute=0, second=0, microsecond=0)

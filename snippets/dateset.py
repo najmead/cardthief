@@ -1,19 +1,35 @@
+import sqlite3
+
 from datetime import date, timedelta
 
-today = date(2016, 4, 1)
-wayBack = date(2014, 1, 1)
+conn = sqlite3.connect('netrunner.db')
 
-print(today)
+conn.row_factory = sqlite3.Row
 
-d = [wayBack, today]
+c = conn.cursor()
 
-print(d)
+c.execute('''
+            select distinct date(create_date) 
+            from deck 
+            order by date(create_date);
+        ''')
 
-date_set = set(d[0] + timedelta(x) for x in range((d[-1] - d[0]).days))
+dates = c.fetchall()
 
-print(date_set)
+today = datetime.today()-timedelta(days=1)
+today = today.replace(hour=0, minute=0, second=0, microsecond=0)
+wayBack = wayBack = datetime.strptime('2016-01-27', "%Y-%m-%d")
 
-missing = sorted(date_set - set(d))
+d = [today, wayBack]
 
-print(missing)
-[datetime.date(2010, 2, 27), datetime.date(2010, 2, 28)]
+existing = set(datetime.strptime(dates[x][0],"%Y-%m-%d") for x in range(0, len(dates)))
+
+d.extend(existing)
+
+d = sorted(d)
+
+allDates = set(d[0] + timedelta(x) for x in range((d[-1] - d[0]).days))
+
+missingDates = sorted(allDates - set(d))
+
+print(missingDates)

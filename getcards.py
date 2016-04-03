@@ -2,13 +2,13 @@ import requests
 import json
 import sqlite3
 import time
-import datetime
 import logging
-import random
 import bs4
 
 from time import mktime
 from datetime import datetime, timedelta
+from random import shuffle
+from bs4 import BeautifulSoup
 
 def dbInit(conn):
     
@@ -70,6 +70,7 @@ def getCards(conn, fromDate):
         
     ## Get JSON Data from website
     url = 'http://netrunnerdb.com/api/cards/'
+    logging.info("Getting list of cards.")
     response = requests.get(url=url)
     results = json.loads(response.text)
 
@@ -77,8 +78,10 @@ def getCards(conn, fromDate):
     c = conn.cursor()
 
     ## Iterate over JSON results and enter into database
+    logging.info("Dumping cards into database.")
     for card in results:
-        lastMod=time.strptime(card['last-modified'], "%Y-%m-%dT%H:%M:%S+00:00")
+        lastMod=datetime.strptime(card['last-modified'], "%Y-%m-%dT%H:%M:%S+00:00")
+        
         if lastMod >fromDate:
             
             if 'flavor' in card: 
@@ -100,7 +103,7 @@ def getCards(conn, fromDate):
                 text = card['text']
             else:
                 text = None
-                
+            
             row = ( card['code'],
                     card['cyclenumber'],
                     card['number'],
@@ -118,49 +121,74 @@ def getCards(conn, fromDate):
                     card['uniqueness'],
                     card['imagesrc'],
                     card['url'],
-                    currentDate,
-                    card['last-modified']
+                    datetime.strftime(datetime.today(), "%Y-%m-%d %H:%M:%S"),
+                    datetime.strftime(lastMod, "%Y-%m-%d %H:%M:%S")
                     )
             
-            c.execute('''   insert into card(code, cyclenumber, number, setname, side, 
-                                            faction, title,type, subtype, text, 
-                                            flavor, quantity, limited, minimumdecksize,
-                                            uniqueness, imagesrc, url, added_date,
-                                            last_modified_date) 
-                            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);''', row)
+            c.execute('''
+                        insert or replace into card
+                        (code, cyclenumber, number, setname, side, 
+                        faction, title,type, subtype, text, 
+                        flavor, quantity, limited, minimumdecksize, uniqueness,
+                        imagesrc, url, added_date,last_modified_date) 
+                        values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+                    ''', row)
                     
     conn.commit()
     c.close()
 
-def getDecks(conn, dbMaxDate):
+def getDecks(conn, wayBack):
     
-    ## Get the current date (rounded down)
-    currentDate = datetime.today()
-    currentDate = currentDate.replace(hour=0, minute=0, second=0, microsecond=0)
-    print(currentDate)
-
-    ## Get the latest date, according to the database
-    #dbMaxDate = datetime.strptime('2016-03-27', "%Y-%m-%d")
-    #print(dbMaxDate)
-
-    ## Calculate how many days of querying, and generate random number sequence
-    queryDays = (dbMaxDate - currentDate).days  * -1
-    print(queryDays)
-    
-    random.seed(123)
-    days = random.sample(range(0, queryDays), queryDays)
- 
+    ## Create connection to db and query it
+    # conn = sqlite3.connect('netrunner.db')
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
+
+    c.execute('''
+                select distinct date(create_date) 
+                from deck 
+                order by date(create_date);
+            ''')
+    
+    dates = c.fetchall()
+    existingDates = set(datetime.strptime(dates[x][0],"%Y-%m-%d") for x in range(0, len(dates)))
+
+    ## Get the current date (rounded down).  
+    today = datetime.today()-timedelta(days=1)
+    today = today.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    ## How far back do we want to go?
+    #   Use the wayBack variable as passed to this function.
+    #   Alternatively, uncomment the line below if you want to test
+    #   with a specific date
+    #wayBack = datetime.strptime('2016-03-27', "%Y-%m-%d")
+  
+    ## Create a set with our current dates, plus whatever is already in db
+    logging.info('''
+                    Running a query on dates from '''+str(today)+''' 
+                    to '''+str(wayBack)+'''.
+                ''')
+                
+    d = [wayBack, today]
+    d.extend(existingDates)
+    d = sorted(d)
+    
+    ## Generate a complete list of dates.  Anything not in the list, is missing
+    #   Shuffle the missing dates, so we randomly pull them
+    allDates = set(d[0] + timedelta(x) for x in range((d[-1] - d[0]).days))
+    
+    missingDates = sorted(allDates - set(d))
+    shuffle(missingDates)
     
     ## Iterate over the sequence of days, and query API
-    for day in days:
-        queryDate = (dbMaxDate+timedelta(days=day)).strftime('%Y-%m-%d')
+    for date in missingDates:
+        queryDate = datetime.strftime(date, '%Y-%m-%d')
         url = 'http://netrunnerdb.com/api/decklists/by_date/'+queryDate        
+        logging.info("Querying "+url)
         
         response = requests.get(url=url)
         decks = json.loads(response.text)
-        
-        
+                
         for deck in decks:
             
             ## Try and get the social tags from the website
@@ -210,7 +238,9 @@ def getDecks(conn, dbMaxDate):
                             insert or ignore into decklist(deckid, cardid, quantity)
                             values (?,?,?);
                         ''', row)
-
+            
+            conn.commit()
+            time.sleep(2)
             
     conn.commit()
     c.close()
@@ -219,11 +249,12 @@ def getDecks(conn, dbMaxDate):
             
     
 def main():
-    
-    logging.basicConfig(level=logging.DEBUG)
-    
+
+    ## Set up basics
+    logging.basicConfig(level=logging.DEBUG)    
     dbFile='netrunner.db'
-     
+   
+    ## Establish database for storing data
     try:
         logging.info('Trying to find existing database.')        
         d = open(dbFile)
@@ -236,25 +267,25 @@ def main():
     
     else:    
         firstRun = False    
+        conn = sqlite3.connect(dbFile)
         d.close()    
         logging.info('Found one. I hope it''s correct.')
     
-   
-    conn = sqlite3.connect(dbFile)
 
-    c = conn.cursor()
+    ## How far back do you want to go?
+    wayBack = datetime.strptime('2015-03-01', "%Y-%m-%d")
     
-    c.execute("select max(create_date) from deck")
-    d = c.fetchone()[0]
-
-    if firstRun == False and d is not None:
-        dbMaxDate=datetime.strptime(d, "%Y-%m-%d %H:%M:%S").replace(hour=0, minute=0, second=0, microsecond=0)
+    c = conn.cursor()
+    c.execute("select max(last_modified_date) from card")
+    
+    if firstRun is True:
+        lastUpdate = wayBack
     else:
-        dbMaxDate = datetime.strptime('2016-03-01', "%Y-%m-%d")
-        
-    getCards(conn=conn, fromDate=scanDateTime)
+        lastUpdate = datetime.strptime(c.fetchone()[0], "%Y-%m-%d %H:%M:%S")
+    
+    getCards(conn=conn, fromDate=lastUpdate)
 
-    getDecks(conn=conn, dbMaxDate=dbMaxDate)
+    getDecks(conn=conn, wayBack=wayBack)
     
     conn.close()
     

@@ -17,7 +17,7 @@ def dbInit(conn):
                     cycleNumber numeric,
                     cycleName text,
                     isAvailable boolean,
-                    availableDate text,
+                    dateAvailable text,
                     PRIMARY KEY (setId)
                 );''')
     
@@ -128,7 +128,7 @@ def getSets(conn):
             c.execute('''
                         insert or replace into cardSet 
                         (setId, setName, cycleNumber, cycleName,
-                        isAvailable, availableDate)
+                        isAvailable, dateAvailable)
                         values (?,?,?,?,?,?)''', row)
             conn.commit()
         c.close()

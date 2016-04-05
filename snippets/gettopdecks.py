@@ -2,16 +2,19 @@ import requests
 import logging
 import sqlite3
 import json
-from datetime import datetime
-
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
 def getTopDecks(conn):
 
     logging.info("Getting top decks.")
+    refreshCycle=5
+    refreshDate = datetime.strftime(datetime.today() - timedelta(days=refreshCycle), "%Y-%m-%d")
+    
+    c = conn.cursor()
     
     factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 
-                'anarch', 'criminal', 'shaper')
+               'anarch', 'criminal', 'shaper')
 
     #factions = ('haas-bioroid',)
     
@@ -30,50 +33,67 @@ def getTopDecks(conn):
             ## Search for each deck, and it's corresponding social tags
             decks = soup.find_all("a", class_="decklist-name", href=True)            
             social=soup.find_all("small", class_="pull-right social")
-            
+
             for i in range(0, len(decks)):
                 
                 text = social[i].get_text().split()
                 deckId=decks[i]['href'].split("/")[3]
-
-                url = url = 'http://netrunnerdb.com/api/decklist/'+deckId
-                result = requests.get(url=url)
+                logging.info("Found deck "+deckId)
                 
-                deck = json.loads(result.text)
-                
-                row = (deck['id'],
-                        deck['name'],
-                        deck['description'],
-                        deck['username'],
-                        text[0],
-                        text[1],
-                        text[2],
-                        deck['creation'],
-                        datetime.strftime(datetime.today(), "%Y-%m-%d %H:%M:%S")
-                    )
-                
-                c = conn.cursor()
-                c.execute('''
-                        insert or ignore
-                        into deck(deckId, deckName, deckDescription,
-                                        createdBy, likes, favourites,
-                                        comments, dateCreated, dateUpdated)
-                        values (?,?,?,?,?,?,?,?,?)
-                        ''', row)
-                
-                for cardid, qty in deck['cards'].items():
-                    row = (deck['id'],
-                            cardid,
-                            qty
+                recentlyUpdated = c.execute('''
+                                            select not exists 
+                                            (
+                                                select  1
+                                                from    deck
+                                                where   dateUpdated > '''+refreshDate+'''
+                                                        and deckId = '''+deckId+'''
+                                            );''').fetchone()[0]
+                print(recentlyUpdated)
+                if recentlyUpdated != "1":
+                    url = url = 'http://netrunnerdb.com/api/decklist/'+deckId
+                    result = requests.get(url=url)
+                    
+                    if result.status_code == 200:
+                        logging.info("Got a response when querying for deck "+deckId)
+                    
+                        deck = json.loads(result.text)
+                        
+                        row = (deck['id'],
+                                deck['name'],
+                                deck['description'],
+                                deck['username'],
+                                text[0],
+                                text[1],
+                                text[2],
+                                deck['creation'],
+                                datetime.strftime(datetime.today(), "%Y-%m-%d %H:%M:%S")
                             )
-                    c.execute('''
-                            insert or ignore
-                            into deckList(deckId, cardId, cardQty)
-                            values (?,?,?)
-                            ''', row)
+                        
+                        c.execute('''
+                                insert or ignore
+                                into deck(deckId, deckName, deckDescription,
+                                                createdBy, likes, favourites,
+                                                comments, dateCreated, dateUpdated)
+                                values (?,?,?,?,?,?,?,?,?)
+                                ''', row)
+                        
+                        for cardid, qty in deck['cards'].items():
+                            row = (deck['id'],
+                                    cardid,
+                                    qty
+                                    )
+                            c.execute('''
+                                    insert or ignore
+                                    into deckList(deckId, cardId, cardQty)
+                                    values (?,?,?)
+                                    ''', row)
+                    else:
+                        logging.warning("Could get a response when querying for deck "+deckId)
+                else:
+                    logging.info('Deck '+deckId+' has recently been added, so I won''t update it again.')
                     
                 conn.commit()
-                c.close()
+    c.close()
                 
 def getSets(conn):
     url = 'http://netrunnerdb.com/api/sets'
@@ -140,7 +160,6 @@ def getCards(conn):
         for card in results:
                 
             if 'flavor' in card: 
-            #    flavor = h.handle(card['flavor'])
                 flavor=card['flavor']
             else: 
                 flavor = None
@@ -246,8 +265,10 @@ def getCards(conn):
 
 def dbInit(conn):
     
+    ## Open Cursor
     c = conn.cursor()
     
+    ## Create table for decks
     c.execute('''
             create table deck
             (
@@ -263,6 +284,7 @@ def dbInit(conn):
                 PRIMARY KEY (deckId)
             );''')
     
+    ## Create table to join decks to cards
     c.execute('''
             create table deckList
             (
@@ -324,6 +346,7 @@ def dbInit(conn):
                 END;
                 ''')
     
+    ## Create card table
     c.execute('''
                 create table [card]
                 (
@@ -364,7 +387,7 @@ def main():
 
     ## Set up basics
     logging.basicConfig(level=logging.DEBUG)    
-    dbFile='netrunner.db'
+    dbFile='data.db'
    
     ## Establish database for storing data
     try:
@@ -390,7 +413,7 @@ def main():
             logging.warning('Failed to get cards.  Did not proceed to get decks')
     else:
         logging.warning('Failed to get card sets.  Did not proceed to get cards')
-    
-    
+    conn.close()
+
 if __name__ == "__main__":
     main()

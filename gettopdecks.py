@@ -113,9 +113,13 @@ def getTopDecks(conn):
     c.close()
                 
 def getSets(conn):
+<<<<<<< HEAD:gettopdecks.py
     
     ## Get list of sets
     url = 'http://netrunnerdb.com/api/sets'
+=======
+    url = 'http://netrunnerdb.com/api/sets/'
+>>>>>>> master:snippets/gettopdecks.py
     
     logging.info('Querying website '+url)
     response = requests.get(url=url)
@@ -123,7 +127,7 @@ def getSets(conn):
     if response.status_code == 200:
         logging.info('Found sets data.  Loading.')
         
-        results = json.loads(response.text)
+        results = json.loads(response.content.decode('utf-8'))
         
         c = conn.cursor()
         
@@ -180,7 +184,7 @@ def getCards(conn):
     logging.info("Querying website "+url)
     
     response = requests.get(url=url)
-    results = json.loads(response.text)
+    results = json.loads(response.content.decode('utf-8'))
     
     if response.status_code == 200:
         logging.info("Found card data.  Loading.")

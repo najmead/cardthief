@@ -154,15 +154,15 @@ def getSets(conn):
                         values (?,?,?,?,?,?)''', row)
             conn.commit()
             
-            ## Update with my owned packs
-            for pack in myPacks:
-                logging.info('Addeding '+pack+' to list of owned sets')
-                c.execute('''
-                        update  cardSet
-                        set     owned =  1
-                        where   setName = ?;
-                        ''', (pack,)) 
-            conn.commit()
+        ## Update with my owned packs
+        for pack in myPacks:
+            logging.info('Addeding '+pack+' to list of owned sets')
+            c.execute('''
+                    update  cardSet
+                    set     owned =  1
+                    where   setName = ?;
+                    ''', (pack,)) 
+        conn.commit()
         
         
         c.close()
@@ -415,7 +415,8 @@ def dbInit(conn):
                     FOREIGN KEY (setID) REFERENCES cardSet (setId)
                 );
                 ''')
-    
+                
+    ## Create deckSummary view
     c.execute('''
         create view deckSummary as
         select  d.deckId,
@@ -435,6 +436,24 @@ def dbInit(conn):
                         left outer join card c on dl.cardId = c.cardId
         where   c.cardType = 'Identity';
         ''')
+    
+    ## Create deckReport view
+    c.execute('''
+        create  view deckReport as
+        select  ds.deckId, ds.deckIdentity, ds.side, ds.deckFaction, ds.deckName,
+                ds.likes, ds.favourites, ds.comments, ds.weightedLikes, 
+                ds.weightedFavourites, ds.weightedComments, ds.dateCreated,
+                count(distinct case when owned = 0 then c.cardId else null end) missingCards,
+                sum(case when owned = 0 then dl.cardQty else 0 end) totalMissingCards,
+                count(distinct case when owned = 0 then cs.setId else null end) missingSets
+        from    deckSummary ds
+                    left outer join deckList dl on ds.deckId = dl.deckId
+                        left outer join card c on dl.cardId = c.cardId
+                            left outer join cardSet cs on c.setId = cs.setId
+        group   by ds.deckId, ds.deckIdentity, ds.side, ds.deckFaction,
+                ds.deckName, ds.likes, ds.favourites, ds.comments, ds.weightedLikes,
+                ds.weightedFavourites, ds.weightedComments, ds.dateCreated;
+            ''')
 
 def main():
 

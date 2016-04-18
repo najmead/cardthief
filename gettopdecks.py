@@ -5,6 +5,23 @@ import json
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
+myPacks = ('Core Set', 
+            'Data and Destiny',
+            'Creation and Control',
+            'Honor and Profit',
+            'Order and Chaos',
+            'Opening Moves',
+            'What Lies Ahead',
+            'Future Proof',
+            'True Colors',
+            'All That Remains',
+            'Breaker Bay',
+            'First Contact',
+            'Old Hollywood',
+            'Upstalk')
+
+
+
 def getTopDecks(conn):
 
     logging.info("Getting top decks.")
@@ -96,7 +113,9 @@ def getTopDecks(conn):
     c.close()
                 
 def getSets(conn):
-    url = 'http://netrunnerdb.com/api/sets/'
+    
+    ## Get list of sets
+    url = 'http://netrunnerdb.com/api/sets'
     
     logging.info('Querying website '+url)
     response = requests.get(url=url)
@@ -104,7 +123,7 @@ def getSets(conn):
     if response.status_code == 200:
         logging.info('Found sets data.  Loading.')
         
-        results = json.loads(response.content.decode('utf-8'))
+        results = json.loads(response.text)
         
         c = conn.cursor()
         
@@ -134,7 +153,20 @@ def getSets(conn):
                         isAvailable, dateAvailable)
                         values (?,?,?,?,?,?)''', row)
             conn.commit()
+            
+        ## Update with my owned packs
+        for pack in myPacks:
+            logging.info('Addeding '+pack+' to list of owned sets')
+            c.execute('''
+                    update  cardSet
+                    set     owned =  1
+                    where   setName = ?;
+                    ''', (pack,)) 
+        conn.commit()
+        
+        
         c.close()
+        
         return 1
     else:
         logging.warning('No response from API.  Is there a network issue?')
@@ -148,7 +180,7 @@ def getCards(conn):
     logging.info("Querying website "+url)
     
     response = requests.get(url=url)
-    results = json.loads(response.content.decode('utf-8'))
+    results = json.loads(response.text)
     
     if response.status_code == 200:
         logging.info("Found card data.  Loading.")
@@ -306,6 +338,7 @@ def dbInit(conn):
                     setType text,
                     cycleNumber numeric,
                     cycleName text,
+                    owned INTEGER DEFAULT (0),
                     isAvailable boolean,
                     dateAvailable text,
                     PRIMARY KEY (setId)
@@ -382,6 +415,45 @@ def dbInit(conn):
                     FOREIGN KEY (setID) REFERENCES cardSet (setId)
                 );
                 ''')
+                
+    ## Create deckSummary view
+    c.execute('''
+        create view deckSummary as
+        select  d.deckId,
+                c.cardName as deckIdentity,
+                c.cardSide as side,
+                c.cardFaction as deckFaction,
+                d.deckName,
+                d.likes,
+                d.favourites,
+                d.comments,
+                round(d.likes / (julianday('now')-julianday(d.dateCreated))*365) as weightedLikes,
+                round(d.favourites / (julianday('now')-julianday(d.dateCreated))*365) as weightedFavourites,
+                round(d.comments / (julianday('now')-julianday(d.dateCreated))*365) as weightedComments,
+                dateCreated
+        from    deck d
+                    left outer join deckList dl on d.deckId = dl.deckId
+                        left outer join card c on dl.cardId = c.cardId
+        where   c.cardType = 'Identity';
+        ''')
+    
+    ## Create deckReport view
+    c.execute('''
+        create  view deckReport as
+        select  ds.deckId, ds.deckIdentity, ds.side, ds.deckFaction, ds.deckName,
+                ds.likes, ds.favourites, ds.comments, ds.weightedLikes, 
+                ds.weightedFavourites, ds.weightedComments, ds.dateCreated,
+                count(distinct case when owned = 0 then c.cardId else null end) missingCards,
+                sum(case when owned = 0 then dl.cardQty else 0 end) totalMissingCards,
+                count(distinct case when owned = 0 then cs.setId else null end) missingSets
+        from    deckSummary ds
+                    left outer join deckList dl on ds.deckId = dl.deckId
+                        left outer join card c on dl.cardId = c.cardId
+                            left outer join cardSet cs on c.setId = cs.setId
+        group   by ds.deckId, ds.deckIdentity, ds.side, ds.deckFaction,
+                ds.deckName, ds.likes, ds.favourites, ds.comments, ds.weightedLikes,
+                ds.weightedFavourites, ds.weightedComments, ds.dateCreated;
+            ''')
 
 def main():
 

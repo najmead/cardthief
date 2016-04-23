@@ -184,7 +184,7 @@ def getCards(conn):
     logging.info("Querying website "+url)
     
     response = requests.get(url=url)
-    results = json.loads(response.text)
+    results = json.loads(response.content.decode('utf-8'))
     
     if response.status_code == 200:
         logging.info("Found card data.  Loading.")

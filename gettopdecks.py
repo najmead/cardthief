@@ -34,8 +34,8 @@ def getTopDecks(conn):
     
     c = conn.cursor()
     
-    factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 
-               'anarch', 'criminal', 'shaper')
+    factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 'corp', 
+               'anarch', 'criminal', 'shaper', 'runner')
 
     #factions = ('haas-bioroid',)
     

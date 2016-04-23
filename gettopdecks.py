@@ -127,7 +127,7 @@ def getSets(conn):
     if response.status_code == 200:
         logging.info('Found sets data.  Loading.')
         
-        results = json.loads(response.text)
+        results = json.loads(response.content.decode('utf-8'))
         
         c = conn.cursor()
         

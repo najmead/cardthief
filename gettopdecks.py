@@ -5,20 +5,24 @@ import json
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
-myPacks = ('Core Set', 
-            'Data and Destiny',
-            'Creation and Control',
-            'Honor and Profit',
-            'Order and Chaos',
-            'Opening Moves',
-            'What Lies Ahead',
-            'Future Proof',
-            'True Colors',
-            'All That Remains',
-            'Breaker Bay',
-            'First Contact',
-            'Old Hollywood',
-            'Upstalk')
+myPacks = ( "Core Set", 
+            "Data and Destiny",
+            "Creation and Control",
+            "Honor and Profit",
+            "Order and Chaos",
+            "Opening Moves",
+            "What Lies Ahead",
+            "Future Proof",
+            "True Colors",
+            "All That Remains",
+            "Breaker Bay",
+            "First Contact",
+            "Old Hollywood",
+            "Upstalk",
+            "Cyber Exodus",
+            "Trace Amount",
+            "Double Time",
+            "Humanity's Shadow")
 
 
 

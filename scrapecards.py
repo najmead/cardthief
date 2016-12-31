@@ -22,7 +22,13 @@ myPacks = ( "Core Set",
             "Cyber Exodus",
             "Trace Amount",
             "Double Time",
-            "Humanity's Shadow")
+            "Humanity's Shadow",
+            "Mala Tempora",
+            "Up and Over",
+            "The Universe of Tomorrow",
+            "The Underway",
+            "Kala Ghoda"
+          )
 
 
 
@@ -35,15 +41,15 @@ def getTopDecks(conn):
 
     c = conn.cursor()
     
-    #factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 'corp', 
-    #           'anarch', 'criminal', 'shaper', 'runner',
-    #           'adam', 'apex', 'sunny-lebeau')
+    factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 'corp', 
+               'anarch', 'criminal', 'shaper', 'runner',
+               'adam', 'apex', 'sunny-lebeau')
 
-    factions = ('haas-bioroid',)
+    #factions = ('haas-bioroid',)
     
     ## Iterate through factions, and pages
     for faction in factions:
-        for page in range(1,3):
+        for page in range(1,11):
             logging.info("Getting "+faction+" decks, page "+str(page))
  
             url = "http://netrunnerdb.com/en/decklists/find/"+str(page)+"?faction="+faction+"&sort=likes"

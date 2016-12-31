@@ -29,19 +29,21 @@ myPacks = ( "Core Set",
 def getTopDecks(conn):
 
     logging.info("Getting top decks.")
-    refreshCycle=5
+    refreshCycle = 5
     refreshDate = datetime.strftime(datetime.today() - timedelta(days=refreshCycle), "%Y-%m-%d")
-    
+    logging.debug('Updating existing decks with timestamp older than '+refreshDate)
+
     c = conn.cursor()
     
-    factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 'corp', 
-               'anarch', 'criminal', 'shaper', 'runner')
+    #factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 'corp', 
+    #           'anarch', 'criminal', 'shaper', 'runner',
+    #           'adam', 'apex', 'sunny-lebeau')
 
-    #factions = ('haas-bioroid',)
+    factions = ('haas-bioroid',)
     
     ## Iterate through factions, and pages
     for faction in factions:
-        for page in range(1,11):
+        for page in range(1,3):
             logging.info("Getting "+faction+" decks, page "+str(page))
  
             url = "http://netrunnerdb.com/en/decklists/find/"+str(page)+"?faction="+faction+"&sort=likes"
@@ -49,29 +51,39 @@ def getTopDecks(conn):
             
             ## Request data, and soupify it
             result = requests.get(url=url)
+
             soup = BeautifulSoup(result.text, "html.parser")
+            
 
             ## Search for each deck, and it's corresponding social tags
-            decks = soup.find_all("a", class_="decklist-name", href=True)            
-            social=soup.find_all("small", class_="pull-right social")
+            decks = soup.find_all("div", attrs={'class' : 'col-sm-9'})
+            social = soup.find_all("div", attrs={'class' : 'col-sm-3 small social'})
+            logging.debug('Found '+str(len(decks))+' decks')
 
             for i in range(0, len(decks)):
-                
+                logging.debug('Found link '+decks[i].a['href'])
+
                 text = social[i].get_text().split()
-                deckId=decks[i]['href'].split("/")[3]
+                logging.debug('Found Likes: '+text[0]+', Favourites: '+text[1]+', Comments: '+text[2])
+
+                deckId=decks[i].a['href'].split("/")[3]
                 logging.info("Found deck "+deckId)
+
                 
                 recentlyUpdated = c.execute('''
-                                            select not exists 
+                                            select exists 
                                             (
                                                 select  1
                                                 from    deck
                                                 where   dateUpdated > '''+refreshDate+'''
                                                         and deckId = '''+deckId+'''
                                             );''').fetchone()[0]
-                print(recentlyUpdated)
-                if recentlyUpdated != "1":
-                    url = url = 'http://netrunnerdb.com/api/decklist/'+deckId
+
+                logging.info('Deck '+deckId+' updated status since '+refreshDate+': '+str(recentlyUpdated))
+
+                if recentlyUpdated != 1:
+                    logging.debug('Getting info for deck '+deckId)
+                    url = url = 'https://netrunnerdb.com/api/2.0/public/decklist/'+deckId
                     result = requests.get(url=url)
                     
                     if result.status_code == 200:
@@ -79,14 +91,14 @@ def getTopDecks(conn):
                     
                         deck = json.loads(result.text)
                         
-                        row = (deck['id'],
-                                deck['name'],
-                                deck['description'],
-                                deck['username'],
+                        row = (deck['data'][0]['id'],
+                                deck['data'][0]['name'],
+                                deck['data'][0]['description'],
+                                deck['data'][0]['user_name'],
                                 text[0],
                                 text[1],
                                 text[2],
-                                deck['creation'],
+                                deck['data'][0]['date_creation'],
                                 datetime.strftime(datetime.today(), "%Y-%m-%d %H:%M:%S")
                             )
                         
@@ -98,8 +110,8 @@ def getTopDecks(conn):
                                 values (?,?,?,?,?,?,?,?,?)
                                 ''', row)
                         
-                        for cardid, qty in deck['cards'].items():
-                            row = (deck['id'],
+                        for cardid, qty in deck['data'][0]['cards'].items():
+                            row = (deck['data'][0]['id'],
                                     cardid,
                                     qty
                                     )
@@ -119,48 +131,47 @@ def getTopDecks(conn):
 def getSets(conn):
     
     ## Get list of sets
-    url = 'http://netrunnerdb.com/api/sets'
+    url = 'https://netrunnerdb.com/api/2.0/public/packs'
     
     logging.info('Querying website '+url)
     response = requests.get(url=url)
     
     if response.status_code == 200:
-        logging.info('Found sets data.  Loading.')
+        logging.info('Found sets data. Loading.')
         
         results = json.loads(response.content.decode('utf-8'))
         
         c = conn.cursor()
         
-        for set in results:
-
-            if set['available'] == '':
+        for set in results['data']:
+            if set['date_release'] == '':
+                logging.info('Found a release date')
                 available = False
             else:
                 available = True
             
-            if set['available'] != '':
-                availableDate = set['available']
+            if set['date_release'] != '':
+                availableDate = set['date_release']
             else:
                 availableDate = None
             
             row = ( set['code'],
                     set['name'],
-                    set['cyclenumber'],
-                    None,
+                    set['cycle_code'],
                     available,
                     availableDate
                 )
             
             c.execute('''
                         insert or replace into cardSet 
-                        (setId, setName, cycleNumber, cycleName,
+                        (setId, setName, cycleCode,
                         isAvailable, dateAvailable)
-                        values (?,?,?,?,?,?)''', row)
+                        values (?,?,?,?,?)''', row)
             conn.commit()
             
         ## Update with my owned packs
         for pack in myPacks:
-            logging.info('Addeding '+pack+' to list of owned sets')
+            logging.info('Adding '+pack+' to list of owned sets')
             c.execute('''
                     update  cardSet
                     set     owned =  1
@@ -180,7 +191,7 @@ def getSets(conn):
 def getCards(conn):        
         
     ## Get JSON Data from website
-    url = 'http://netrunnerdb.com/api/cards/'
+    url = 'https://netrunnerdb.com/api/2.0/public/cards'
     logging.info("Querying website "+url)
     
     response = requests.get(url=url)
@@ -193,7 +204,7 @@ def getCards(conn):
         c = conn.cursor()
     
         ## Iterate over JSON results and enter into database
-        for card in results:
+        for card in results['data']:
                 
             if 'flavor' in card: 
                 flavor=card['flavor']
@@ -256,12 +267,12 @@ def getCards(conn):
                 mu = None
                 
             row = ( card['code'],
-                    card['set_code'],
+                    card['pack_code'],
                     card['quantity'],
                     card['title'],
-                    card['side'],
-                    card['faction'],
-                    card['type'],
+                    card['side_code'],
+                    card['faction_code'],
+                    card['type_code'],
                     subtype,
                     text,
                     flavor,
@@ -274,7 +285,7 @@ def getCards(conn):
                     str,
                     mu,
                     datetime.strftime(datetime.today(), "%Y-%m-%d %H:%M:%S"),
-                    datetime.strptime(card['last-modified'], "%Y-%m-%dT%H:%M:%S+00:00"))
+                    datetime.strptime(results['last_updated'], "%Y-%m-%dT%H:%M:%S+00:00"))
                         
             c.execute('''   
                         insert or replace
@@ -339,8 +350,7 @@ def dbInit(conn):
                 (
                     setId text,
                     setName text,
-                    setType text,
-                    cycleNumber numeric,
+                    cycleCode text,
                     cycleName text,
                     owned INTEGER DEFAULT (0),
                     isAvailable boolean,
@@ -348,40 +358,6 @@ def dbInit(conn):
                     PRIMARY KEY (setId)
                 );''')
     
-    ## Create trigger to auto populate the cycleName (which isn't in the API)
-    c.execute('''
-                CREATE TRIGGER populateCycleName 
-                AFTER INSERT ON cardSet 
-                BEGIN 
-                    UPDATE cardSet
-                    SET cycleName = CASE 
-                                        WHEN cycleNumber = 0 then 'Draft'
-                                        WHEN cycleNumber = 1 THEN 'Core' 
-                                        when cycleNumber = 2 then 'Genesis'
-                                        when cycleNumber = 3 then 'Creation and Control'
-                                        when cycleNumber = 4 then 'Spin'
-                                        when cycleNumber = 5 then 'Honor and Profit'
-                                        when cycleNumber = 6 then 'Lunar'
-                                        when cycleNumber = 7 then 'Order and Chaos'
-                                        when cycleNumber = 8 then 'SanSan'
-                                        when cycleNumber = 9 then 'Data and Destiny'
-                                        when cycleNumber = 10 then 'Mumbad'
-                                        ELSE 'Unknown' END;
-                END;
-                ''')
-    c.execute('''
-                CREATE TRIGGER populateSetType
-                AFTER INSERT ON cardSet
-                BEGIN
-                    UPDATE  cardSet
-                    set     setType = CASE 
-                                        WHEN cycleNumber = 0 then 'Draft'
-                                        WHEN cycleNumber = 1 then 'Core Set'
-                                        WHEN cycleNumber in (3,5,7,9) then 'Expansion'
-                                        ELSE 'Data Pack'
-                                    END;
-                END;
-                ''')
     
     ## Create card table
     c.execute('''
@@ -438,7 +414,7 @@ def dbInit(conn):
         from    deck d
                     left outer join deckList dl on d.deckId = dl.deckId
                         left outer join card c on dl.cardId = c.cardId
-        where   c.cardType = 'Identity';
+        where   c.cardType = 'identity';
         ''')
     
     ## Create deckReport view

@@ -2,33 +2,37 @@ import requests
 import logging
 import sqlite3
 import json
+import configparser
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
-myPacks = ( "Core Set", 
-            "Data and Destiny",
-            "Creation and Control",
-            "Honor and Profit",
-            "Order and Chaos",
-            "Opening Moves",
-            "What Lies Ahead",
-            "Future Proof",
-            "True Colors",
-            "All That Remains",
-            "Breaker Bay",
-            "First Contact",
-            "Old Hollywood",
-            "Upstalk",
-            "Cyber Exodus",
-            "Trace Amount",
-            "Double Time",
-            "Humanity's Shadow",
-            "Mala Tempora",
-            "Up and Over",
-            "The Universe of Tomorrow",
-            "The Underway",
-            "Kala Ghoda"
-          )
+config = configparser.ConfigParser()
+config.read('cardthief.conf')
+
+#myPacks = ( "core set", 
+#            "Data and Destiny",
+#            "Creation and Control",
+#            "Honor and Profit",
+#            "Order and Chaos",
+#            "Opening Moves",
+#            "What Lies Ahead",
+#            "Future Proof",
+#            "True Colors",
+#            "All That Remains",
+#            "Breaker Bay",
+#            "First Contact",
+#            "Old Hollywood",
+#            "Upstalk",
+#            "Cyber Exodus",
+#            "Trace Amount",
+#            "Double Time",
+#            "Humanity's Shadow",
+#            "Mala Tempora",
+#            "Up and Over",
+#            "The Universe of Tomorrow",
+#            "The Underway",
+#            "Kala Ghoda"
+#          )
 
 
 
@@ -40,16 +44,20 @@ def getTopDecks(conn):
     logging.debug('Updating existing decks with timestamp older than '+refreshDate)
 
     c = conn.cursor()
-    
-    factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 'corp', 
-               'anarch', 'criminal', 'shaper', 'runner',
-               'adam', 'apex', 'sunny-lebeau')
+    factions = list(filter(None, config.get("CardThief", "FactionsToScrape").split('\n')))       
+    logging.info("Scraping factions "+"-".join(factions))
+
+#    factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 'corp', 
+#               'anarch', 'criminal', 'shaper', 'runner',
+#               'adam', 'apex', 'sunny-lebeau')
 
     #factions = ('haas-bioroid',)
     
     ## Iterate through factions, and pages
+    maxIterations = int(config.get("CardThief", "DeckScrapeDepth"))
+
     for faction in factions:
-        for page in range(1,11):
+        for page in range(1,maxIterations):
             logging.info("Getting "+faction+" decks, page "+str(page))
  
             url = "http://netrunnerdb.com/en/decklists/find/"+str(page)+"?faction="+faction+"&sort=likes"
@@ -135,7 +143,9 @@ def getTopDecks(conn):
     c.close()
                 
 def getSets(conn):
-    
+    myPacks = list(filter(None, config.get("CardThief", "MySets").split('\n')))
+    logging.info("Adding "+", ".join(myPacks)+" to my list of owned sets.")
+
     ## Get list of sets
     url = 'https://netrunnerdb.com/api/2.0/public/packs'
     
@@ -177,12 +187,12 @@ def getSets(conn):
             
         ## Update with my owned packs
         for pack in myPacks:
-            logging.info('Adding '+pack+' to list of owned sets')
+            logging.debug('Adding '+pack+' to list of owned sets')
             c.execute('''
                     update  cardSet
-                    set     owned =  1
-                    where   setName = ?;
-                    ''', (pack,)) 
+                    set     isOwned =  1
+                    where   upper(setName) = ?;
+                    ''', (pack.upper(),)) 
         conn.commit()
         
         
@@ -198,13 +208,13 @@ def getCards(conn):
         
     ## Get JSON Data from website
     url = 'https://netrunnerdb.com/api/2.0/public/cards'
-    logging.info("Querying website "+url)
+    logging.info("Querying website "+url+".")
     
     response = requests.get(url=url)
     results = json.loads(response.content.decode('utf-8'))
     
     if response.status_code == 200:
-        logging.info("Found card data.  Loading.")
+        logging.info("Found card data. Loading.")
 
         ## Open Cursor
         c = conn.cursor()
@@ -322,87 +332,142 @@ def dbInit(conn):
     c = conn.cursor()
     
     ## Create table for decks
-    c.execute('''
-            create table deck
-            (
-                deckId int,
-                deckName text,
-                deckDescription text,
-                createdBy text,	
-                likes int,	
-                favourites int,
-                comments int,
-                dateCreated text,
-                dateUpdated text,
-                PRIMARY KEY (deckId)
-            );''')
+    e = c.execute('''select exists (select * from sqlite_master where name='deck')''').fetchone()[0]
+    if e != 1:
+        logging.info('No deck table, creating one.')
+        c.execute('''
+                create table deck
+                (
+                    deckId int,
+                    deckName text,
+                    deckDescription text,
+                    createdBy text,	
+                    likes int,	
+                    favourites int,
+                    comments int,
+                    dateCreated text,
+                    dateUpdated text,
+                    PRIMARY KEY (deckId)
+                );''')
+    else:
+        logging.info('Found deck table, no need to create one.')
     
     ## Create table to join decks to cards
-    c.execute('''
-            create table deckList
-            (
-                deckId int,
-                cardId text,
-                cardQty int,
-                PRIMARY KEY (deckId, cardId),
-                FOREIGN KEY (deckId) references deck (deckId),
-                FOREIGN KEY (cardId) references card (cardId)
-            );''')
+    e = c.execute('''select exists (select * from sqlite_master where name='deckList')''').fetchone()[0]
+    if e != 1:
+        logging.info('No decklist table, creating one.')
+        c.execute('''
+                create table deckList
+                (
+                    deckId int,
+                    cardId text,
+                    cardQty int,
+                    PRIMARY KEY (deckId, cardId),
+                    FOREIGN KEY (deckId) references deck (deckId),
+                    FOREIGN KEY (cardId) references card (cardId)
+                );''')
+    else:
+        logging.info('Found decklist table, no need to create one.')
 
     
     ## Create set table structure
-    c.execute('''
-                create table [cardSet]
-                (
-                    setId text,
-                    setName text,
-                    cycleCode text,
-                    cycleName text,
-                    owned INTEGER DEFAULT (0),
-                    isAvailable boolean,
-                    dateAvailable text,
-                    PRIMARY KEY (setId)
-                );''')
-    
+    e = c.execute('''select exists (select * from sqlite_master where name='cardSet')''').fetchone()[0]
+    if e != 1:
+        logging.info('No cardset table, creating one.')
+        c.execute('''
+                    create table [cardSet]
+                    (
+                        setId text,
+                        setName text,
+                        cycleCode text,
+                        cycleName text,
+                        isOwned boolean DEFAULT (0),
+                        isAvailable boolean,
+                        dateAvailable text,
+                        PRIMARY KEY (setId)
+                    );''')
+    else:
+        logging.info('Found cardset table, no need to create one.')
     
     ## Create card table
-    c.execute('''
-                create table [card]
-                (
-                    cardId text,
-                    setId text,
-                    setQuantity int,
+    e = c.execute('''select exists (select * from sqlite_master where name='card')''').fetchone()[0]
+    if e != 1:
+        logging.info('No card table, creating one.')
+        c.execute('''
+                    create table [card]
+                    (
+                        cardId text,
+                        setId text,
+                        setQuantity int,
                     
-                    cardName text,
-                    cardSide text,
-                    cardFaction text,
-                    cardType text,
-                    cardSubtype text,
-                    cardText text,
-                    cardFlavour text,
-                    cardInfluence int,
+                        cardName text,
+                        cardSide text,
+                        cardFaction text,
+                        cardType text,
+                        cardSubtype text,
+                        cardText text,
+                        cardFlavour text,
+                        cardInfluence int,
                     
-                    -- Identity card details 
-                    baseLink int,
-                    influenceLimit int,
-                    minimumDeckSize int,    
+                        -- Identity card details 
+                        baseLink int,
+                        influenceLimit int,
+                        minimumDeckSize int,    
                 
-                    -- General card details    
-                    isUnique boolean,
-                    cost int,
+                        -- General card details    
+                        isUnique boolean,
+                        cost int,
+                        
+                        -- ICE / ICEbreaker / Program details
+                        strength int,
+                        memoryUnits int,
                     
-                    -- ICE / ICEbreaker / Program details
-                    strength int,
-                    memoryUnits int,
-                    
-                    dateAdded text,
-                    dateModified text,
-                    PRIMARY KEY (cardId),
-                    FOREIGN KEY (setID) REFERENCES cardSet (setId)
+                        dateAdded text,
+                        dateModified text,
+                        PRIMARY KEY (cardId),
+                        FOREIGN KEY (setID) REFERENCES cardSet (setId)
+                    );
+                    ''')
+    else:
+        logging.info('Found card table, no need to create one.')
+
+    ## Create most wanted
+    e = c.execute('''select exists (select * from sqlite_master where name='mostWanted');''').fetchone()[0]
+    if e != 1:
+        logging.info('No most wanted table, creating one.')
+        c.execute('''
+            create table [mostWanted] 
+                (
+                    mostWantedId text,
+                    mostWantedName text,
+                    isActive boolean,
+                    dateActive text,
+                    PRIMARY KEY (mostWantedId)
                 );
                 ''')
-                
+    else:
+        logging.info('Found most wanted table, no need to create one.')
+
+    ## Create most wanted list
+    e = c.execute('''select exists (select * from sqlite_master where name='mostWantedList');''').fetchone()[0]
+    if e != 1:
+        logging.info('No most wanted list table, creating one.')
+        c.execute('''
+            create table [mostWantedList]
+                (
+                    mostWantedId text,
+                    cardId text,
+                    cardQty int,
+                    PRIMARY KEY (mostWantedId, cardId),
+                    FOREIGN KEY (mostWantedId) REFERENCES mostWanted (mostWantedId),
+                    FOREIGN KEY (cardId) REFERENCES card (cardId)
+                 );
+                 ''')                
+    else:
+        logging.info('Found most wanted list table, no need to create one.')
+
     ## Create deckSummary view
+    c.execute('drop view if exists deckSummary;')
     c.execute('''
         create view deckSummary as
         select  d.deckId,
@@ -424,14 +489,15 @@ def dbInit(conn):
         ''')
     
     ## Create deckReport view
+    c.execute('drop view if exists deckReport;')
     c.execute('''
         create  view deckReport as
         select  ds.deckId, ds.deckIdentity, ds.side, ds.deckFaction, ds.deckName,
                 ds.likes, ds.favourites, ds.comments, ds.weightedLikes, 
                 ds.weightedFavourites, ds.weightedComments, ds.dateCreated,
-                count(distinct case when owned = 0 then c.cardId else null end) missingCards,
-                sum(case when owned = 0 then dl.cardQty else 0 end) totalMissingCards,
-                count(distinct case when owned = 0 then cs.setId else null end) missingSets
+                count(distinct case when isOwned = 0 then c.cardId else null end) missingCards,
+                sum(case when isOwned = 0 then dl.cardQty else 0 end) totalMissingCards,
+                count(distinct case when isOwned = 0 then cs.setId else null end) missingSets
         from    deckSummary ds
                     left outer join deckList dl on ds.deckId = dl.deckId
                         left outer join card c on dl.cardId = c.cardId
@@ -440,6 +506,70 @@ def dbInit(conn):
                 ds.deckName, ds.likes, ds.favourites, ds.comments, ds.weightedLikes,
                 ds.weightedFavourites, ds.weightedComments, ds.dateCreated;
             ''')
+
+def updateCardData(conn):
+    errorCount = 1
+
+    if getSets(conn=conn) == 1:
+        logging.info('Sucessfully updated list of card sets.')
+        if getCards(conn=conn) == 1:
+            logging.info('Successfully updated list of cards.')
+            if updateMWL(conn=conn) == 1:
+                logging.info('Successfully updated most wanted lists.')
+            else:
+                logging.warning('Failed to update most wanted lists.')
+                errorCount+=1
+        else:
+            logging.warning('Failed to update list of cards.')
+            errorCount+=1
+    else:
+        logging.warning('Failed to update list of card sets.')
+        errorCount+=1
+
+    return errorCount
+
+
+def updateMWL(conn):
+    logging.info('Updating Most Wanted List')
+    c = conn.cursor()
+
+    url='https://netrunnerdb.com/api/2.0/public/mwl'
+
+    response=requests.get(url=url)
+
+    if response.status_code == 200:
+        logging.info('Found Most Wanted List')
+        results=json.loads(response.content.decode('utf-8'))
+
+        for mwl in results['data']:
+            logging.info('Found '+mwl['name']+' with '+str(len(mwl['cards']))+' entries')
+            row = ( mwl['id'],
+                    mwl['name'],
+                    mwl['active'],
+                    mwl['date_start']
+                  )
+            c.execute('''
+                        insert or replace into mostWanted
+                        (mostWantedId, mostWantedName, isActive, dateActive)                                                                                                 
+                        values (?,?,?,?)''', row)                                                                                                                            
+            conn.commit()
+                                                                                                                                                                             
+            for card, value in mwl['cards'].items():                                                                                                                         
+                logging.debug('Found card '+card+' ('+str(value)+')')                                                                                                         
+                row = ( mwl['id'],                                                                                                                                           
+                        card,                                                                                                                                                
+                        value                                                                                                                                                
+                      )                                                                                                                                                      
+                c.execute('''                                                                                                                                                
+                            insert or replace into mostWantedList
+                            (mostWantedId, cardId, cardQty)                                                                                                                  
+                            values (?,?,?)''', row)                                                                                                                          
+                conn.commit()                                                                                                                                                
+        return 1
+
+    else:
+        logging.warning('No response from API.')
+        return 0
 
 def main():
 
@@ -456,21 +586,27 @@ def main():
         logging.warning('No database found. Creating one.')    
         firstRun = True    
         conn = sqlite3.connect(dbFile)
-        dbInit(conn=conn)
     
     else:    
         firstRun = False    
         conn = sqlite3.connect(dbFile)
         d.close()    
         logging.info('Found one. I hope it''s correct.')
+
+    ## Initialise database
+    dbInit(conn=conn)
     
-    if getSets(conn=conn) == 1:
-        if getCards(conn=conn) == 1:
+    ## Update card data
+    if updateCardData(conn=conn) == 1:
+        logging.info('Successfully updated card information.')
+        if config.get("CardThief", "UpdateTopDecks").upper() == "TRUE":
+            logging.info("Scrapping top decks")
             getTopDecks(conn)
         else:
-            logging.warning('Failed to get cards.  Did not proceed to get decks')
+            logging.info("No scrape of top decks requested.")
     else:
-        logging.warning('Failed to get card sets.  Did not proceed to get cards')
+        logging.warning('Failed to update card information.  Without up to date information, I can''t scrape decks.')
+
     conn.close()
 
 if __name__ == "__main__":

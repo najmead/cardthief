@@ -9,32 +9,6 @@ from bs4 import BeautifulSoup
 config = configparser.ConfigParser()
 config.read('cardthief.conf')
 
-#myPacks = ( "core set", 
-#            "Data and Destiny",
-#            "Creation and Control",
-#            "Honor and Profit",
-#            "Order and Chaos",
-#            "Opening Moves",
-#            "What Lies Ahead",
-#            "Future Proof",
-#            "True Colors",
-#            "All That Remains",
-#            "Breaker Bay",
-#            "First Contact",
-#            "Old Hollywood",
-#            "Upstalk",
-#            "Cyber Exodus",
-#            "Trace Amount",
-#            "Double Time",
-#            "Humanity's Shadow",
-#            "Mala Tempora",
-#            "Up and Over",
-#            "The Universe of Tomorrow",
-#            "The Underway",
-#            "Kala Ghoda"
-#          )
-
-
 
 def getTopDecks(conn):
 
@@ -47,12 +21,6 @@ def getTopDecks(conn):
     factions = list(filter(None, config.get("CardThief", "FactionsToScrape").split('\n')))       
     logging.info("Scraping factions "+"-".join(factions))
 
-#    factions = ('haas-bioroid','jinteki', 'nbn', 'weyland-consortium', 'corp', 
-#               'anarch', 'criminal', 'shaper', 'runner',
-#               'adam', 'apex', 'sunny-lebeau')
-
-    #factions = ('haas-bioroid',)
-    
     ## Iterate through factions, and pages
     maxIterations = int(config.get("CardThief", "DeckScrapeDepth"))
 
@@ -68,7 +36,6 @@ def getTopDecks(conn):
 
             soup = BeautifulSoup(result.text, "html.parser")
             
-
             ## Search for each deck, and it's corresponding social tags
             decks = soup.find_all("div", attrs={'class' : 'col-sm-9'})
             social = soup.find_all("div", attrs={'class' : 'col-sm-3 small social'})
@@ -83,7 +50,6 @@ def getTopDecks(conn):
                 deckId=decks[i].a['href'].split("/")[3]
                 logging.info("Found deck "+deckId)
 
-                
                 recentlyUpdated = c.execute('''
                                             select exists 
                                             (
@@ -574,7 +540,7 @@ def updateMWL(conn):
 def main():
 
     ## Set up basics
-    logging.basicConfig(level=logging.DEBUG)    
+    logging.basicConfig(level=logging.INFO)    
     dbFile='data.db'
    
     ## Establish database for storing data

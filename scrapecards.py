@@ -193,33 +193,23 @@ def getCards(conn):
             else: 
                 flavor = None
             
-            if 'minimumdecksize' in card: 
-                mindeck = card['minimumdecksize'] 
-            else: 
-                mindeck = None
-            
-            if 'subtype' in card:
-                subtype = card['subtype']
-            else:
-                subtype = None
-            
             if 'text' in card:
                 text=card['text']
             else:
                 text = None
             
-            if 'baselink' in card:
-                baselink=card['baselink']
+            if 'base_link' in card:
+                baselink=card['base_link']
             else:
                 baselink = None
             
-            if 'influencelimit' in card:
-                inflimit=card['influencelimit']
+            if 'influence_limit' in card:
+                inflimit=card['influence_limit']
             else:
                 inflimit = None
     
-            if 'minimumdecksize' in card:
-                mindeck=card['minimumdecksize']
+            if 'minimum_deck_size' in card:
+                mindeck=card['minimum_deck_size']
             else:
                 mindeck = None
             
@@ -228,8 +218,8 @@ def getCards(conn):
             else:
                 unique = None
             
-            if 'factioncost' in card:
-                influence=card['factioncost']
+            if 'faction_cost' in card:
+                influence=card['faction_cost']
             else:
                 influence=None
                 
@@ -243,11 +233,21 @@ def getCards(conn):
             else:
                 str = None
                 
-            if 'memoryunits' in card:
-                mu=card['memoryunits']
+            if 'memory_cost' in card:
+                mu=card['memory_cost']
             else:
                 mu = None
                 
+            if 'advancement_cost' in card:
+                advancement_cost=card['advancement_cost']
+            else:
+                advancement_cost=None
+
+            if 'agenda_points' in card:
+                agenda_points=card['agenda_points']
+            else:
+                agenda_points=None
+
             row = ( card['code'],
                     card['pack_code'],
                     card['quantity'],
@@ -255,34 +255,44 @@ def getCards(conn):
                     card['side_code'],
                     card['faction_code'],
                     card['type_code'],
-                    subtype,
                     text,
                     flavor,
                     influence,
                     baselink,
                     inflimit,
                     mindeck,
+                    advancement_cost,
+                    agenda_points,
                     unique,
                     cost,
                     str,
                     mu,
                     datetime.strftime(datetime.today(), "%Y-%m-%d %H:%M:%S"),
                     datetime.strptime(results['last_updated'], "%Y-%m-%dT%H:%M:%S+00:00"))
+
+            logging.info(row)
                         
             c.execute('''   
                         insert or replace
                         into card(cardId, setId, setQuantity, cardName, 
                                     cardSide, cardFaction, cardType,
-                                    cardSubtype, cardText, cardFlavour,
+                                    cardText, cardFlavour,
                                     cardInfluence, baseLink, influenceLimit, 
-                                    minimumDeckSize, isUnique, cost, 
-                                    strength, memoryUnits, dateAdded, 
+                                    minimumDeckSize, advancementCost, agendaPoints,
+                                    isUnique, cost, strength, memoryUnits, dateAdded, 
                                     dateModified)
-                        values (?,?,?,?,?,?,?,?,?,?,
+                        values (?,?,?,?,?,?,?,?,?,?,?,
                                 ?,?,?,?,?,?,?,?,?,?)
                     ''', row)
-                    
-        conn.commit()
+            conn.commit()
+
+            if 'keywords' in card:
+                keywords = card['keywords'].split(' - ')
+                for word in keywords:
+                    row = (card['code'], word)
+                    c.execute('''insert or ignore into cardSubType(cardId, cardSubType) values(?,?);''', row)
+                    conn.commit()
+
         c.close()
         return 1
         
@@ -296,6 +306,7 @@ def dbInit(conn):
     
     ## Open Cursor
     c = conn.cursor()
+    c.execute('PRAGMA foreign_keys = ON;')
     
     ## Create table for decks
     e = c.execute('''select exists (select * from sqlite_master where name='deck')''').fetchone()[0]
@@ -335,6 +346,20 @@ def dbInit(conn):
     else:
         logging.info('Found decklist table, no need to create one.')
 
+    ## Create table for storing card subtype
+    e = c.execute('''select exists (select * from sqlite_master where name='cardSubType')''').fetchone()[0]
+    if e != 1:
+        logging.info('No card subtype table, creating one.')
+        c.execute('''
+                create table cardSubType
+                (
+                    cardId text,
+                    cardSubType text,
+                    PRIMARY KEY (cardId, cardSubType),
+                    FOREIGN KEY (cardId) references card (cardId)
+                );''')
+    else:
+        logging.info('Found card subtype table, no need to create one.')
     
     ## Create set table structure
     e = c.execute('''select exists (select * from sqlite_master where name='cardSet')''').fetchone()[0]
@@ -370,7 +395,7 @@ def dbInit(conn):
                         cardSide text,
                         cardFaction text,
                         cardType text,
-                        cardSubtype text,
+                        cardKeywords text,
                         cardText text,
                         cardFlavour text,
                         cardInfluence int,
@@ -387,6 +412,10 @@ def dbInit(conn):
                         -- ICE / ICEbreaker / Program details
                         strength int,
                         memoryUnits int,
+
+                        -- Agenda details
+                        advancementCost int,
+                        agendaPoints int,
                     
                         dateAdded text,
                         dateModified text,
@@ -515,7 +544,7 @@ def updateMWL(conn):
                     mwl['date_start']
                   )
             c.execute('''
-                        insert or replace into mostWanted
+                        insert or ignore into mostWanted
                         (mostWantedId, mostWantedName, isActive, dateActive)                                                                                                 
                         values (?,?,?,?)''', row)                                                                                                                            
             conn.commit()
@@ -527,7 +556,7 @@ def updateMWL(conn):
                         value                                                                                                                                                
                       )                                                                                                                                                      
                 c.execute('''                                                                                                                                                
-                            insert or replace into mostWantedList
+                            insert or ignore into mostWantedList
                             (mostWantedId, cardId, cardQty)                                                                                                                  
                             values (?,?,?)''', row)                                                                                                                          
                 conn.commit()                                                                                                                                                

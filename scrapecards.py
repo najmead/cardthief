@@ -270,7 +270,7 @@ def getCards(conn):
                     datetime.strftime(datetime.today(), "%Y-%m-%d %H:%M:%S"),
                     datetime.strptime(results['last_updated'], "%Y-%m-%dT%H:%M:%S+00:00"))
 
-            logging.info(row)
+            ##logging.info(row)
                         
             c.execute('''   
                         insert or replace

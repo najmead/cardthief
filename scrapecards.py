@@ -19,7 +19,7 @@ def getTopDecks(conn):
 
     c = conn.cursor()
     factions = list(filter(None, config.get("CardThief", "FactionsToScrape").split('\n')))       
-    logging.info("Scraping factions "+"-".join(factions))
+    logging.debug("Scraping factions "+"-".join(factions))
 
     ## Iterate through factions, and pages
     maxIterations = int(config.get("CardThief", "DeckScrapeDepth"))
@@ -29,7 +29,7 @@ def getTopDecks(conn):
             logging.info("Getting "+faction+" decks, page "+str(page))
  
             url = "http://netrunnerdb.com/en/decklists/find/"+str(page)+"?faction="+faction+"&sort=likes"
-            logging.info('Scrapping '+url)
+            logging.debug('Scrapping '+url)
             
             ## Request data, and soupify it
             result = requests.get(url=url)
@@ -39,16 +39,17 @@ def getTopDecks(conn):
             ## Search for each deck, and it's corresponding social tags
             decks = soup.find_all("div", attrs={'class' : 'col-sm-9'})
             social = soup.find_all("div", attrs={'class' : 'col-sm-3 small social'})
-            logging.debug('Found '+str(len(decks))+' decks')
+            logging.info('Found '+str(len(decks))+' decks')
 
             for i in range(0, len(decks)):
+                logging.info('Updating on deck '+str(i)+' of '+str(len(decks)))
                 logging.debug('Found link '+decks[i].a['href'])
 
                 text = social[i].get_text().split()
                 logging.debug('Found Likes: '+text[0]+', Favourites: '+text[1]+', Comments: '+text[2])
 
                 deckId=decks[i].a['href'].split("/")[3]
-                logging.info("Found deck "+deckId)
+                logging.debug("Found deck "+deckId)
 
                 recentlyUpdated = c.execute('''
                                             select exists 
@@ -59,7 +60,7 @@ def getTopDecks(conn):
                                                         and deckId = '''+deckId+'''
                                             );''').fetchone()[0]
 
-                logging.info('Deck '+deckId+' updated status since '+refreshDate+': '+str(recentlyUpdated))
+                logging.debug('Deck '+deckId+' updated status since '+refreshDate+': '+str(recentlyUpdated))
 
                 if recentlyUpdated != 1:
                     logging.debug('Getting info for deck '+deckId)
@@ -67,7 +68,7 @@ def getTopDecks(conn):
                     result = requests.get(url=url)
                     
                     if result.status_code == 200:
-                        logging.info("Got a response when querying for deck "+deckId)
+                        logging.debug("Got a response when querying for deck "+deckId)
                     
                         deck = json.loads(result.text)
                         
@@ -115,7 +116,7 @@ def getSets(conn):
     ## Get list of sets
     url = 'https://netrunnerdb.com/api/2.0/public/packs'
     
-    logging.info('Querying website '+url)
+    logging.debug('Querying website '+url)
     response = requests.get(url=url)
     
     if response.status_code == 200:
@@ -153,7 +154,7 @@ def getSets(conn):
             
         ## Update with my owned packs
         for pack in myPacks:
-            logging.debug('Adding '+pack+' to list of owned sets')
+            logging.info('Adding '+pack+' to list of owned sets')
             c.execute('''
                     update  cardSet
                     set     isOwned =  1
@@ -174,7 +175,7 @@ def getCards(conn):
         
     ## Get JSON Data from website
     url = 'https://netrunnerdb.com/api/2.0/public/cards'
-    logging.info("Querying website "+url+".")
+    logging.debug("Querying website "+url+".")
     
     response = requests.get(url=url)
     results = json.loads(response.content.decode('utf-8'))

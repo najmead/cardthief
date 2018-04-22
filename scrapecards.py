@@ -453,7 +453,10 @@ def dbInit(conn):
                 (
                     mostWantedId text,
                     cardId text,
-                    cardQty int,
+		    globalPenalty int,
+                    factionCost int,
+                    isRestricted boolean,
+                    deckLimit int,
                     PRIMARY KEY (mostWantedId, cardId),
                     FOREIGN KEY (mostWantedId) REFERENCES mostWanted (mostWantedId),
                     FOREIGN KEY (cardId) REFERENCES card (cardId)
@@ -538,7 +541,7 @@ def updateMWL(conn):
         results=json.loads(response.content.decode('utf-8'))
 
         for mwl in results['data']:
-            logging.info('Found '+mwl['name']+' with '+str(len(mwl['cards']))+' entries')
+            logging.info('Found '+mwl['name']+' with '+str(len(mwl['cards']))+' entries (Active: '+str(mwl['active'])+', Start Date: '+str(mwl['date_start'])+')')
             row = ( mwl['id'],
                     mwl['name'],
                     mwl['active'],
@@ -547,19 +550,20 @@ def updateMWL(conn):
             c.execute('''
                         insert or ignore into mostWanted
                         (mostWantedId, mostWantedName, isActive, dateActive)                                                                                                 
-                        values (?,?,?,?)''', row)                                                                                                                            
+                        values (?,?,?,?);''', row)                                                                                                                            
             conn.commit()
+            logging.info('About to start inserting cards')
                                                                                                                                                                              
-            for card, value in mwl['cards'].items():                                                                                                                         
-                logging.debug('Found card '+card+' ('+str(value)+')')                                                                                                         
+            for card, value in mwl['cards'].items():                                           
+		for penalty                                                                              
+                logging.info('Found card '+card+' ('+str(value)+')'+str(value['is_restricted']))                                                                                                         
                 row = ( mwl['id'],                                                                                                                                           
-                        card,                                                                                                                                                
-                        value                                                                                                                                                
+                        card                                                                                                                                                
                       )                                                                                                                                                      
                 c.execute('''                                                                                                                                                
                             insert or ignore into mostWantedList
-                            (mostWantedId, cardId, cardQty)                                                                                                                  
-                            values (?,?,?)''', row)                                                                                                                          
+                            (mostWantedId, cardId)                                                                                                                  
+                            values (?,?);''', row)                                                                                                                          
                 conn.commit()                                                                                                                                                
         return 1
 
@@ -607,3 +611,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

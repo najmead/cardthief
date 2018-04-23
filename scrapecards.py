@@ -554,16 +554,17 @@ def updateMWL(conn):
             conn.commit()
             logging.info('About to start inserting cards')
                                                                                                                                                                              
-            for card, value in mwl['cards'].items():                                           
-		for penalty                                                                              
+            for card, penalty in mwl['cards'].items():                                           
+		                                                                    
                 logging.info('Found card '+card+' ('+str(value)+')'+str(value['is_restricted']))                                                                                                         
                 row = ( mwl['id'],                                                                                                                                           
-                        card                                                                                                                                                
+                        card,
+                        penalty.get('global_penalty', '')
                       )                                                                                                                                                      
                 c.execute('''                                                                                                                                                
                             insert or ignore into mostWantedList
-                            (mostWantedId, cardId)                                                                                                                  
-                            values (?,?);''', row)                                                                                                                          
+                            (mostWantedId, cardId, globalPenalty)                                                                                                                  
+                            values (?,?, ?);''', row)                                                                                                                          
                 conn.commit()                                                                                                                                                
         return 1
 
